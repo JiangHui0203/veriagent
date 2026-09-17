@@ -15,53 +15,6 @@ They share the same engineering philosophy — **model generation should be boun
 
 ---
 
-## Architecture at a Glance
-
-```mermaid
-flowchart LR
-    subgraph PW["ProofWriter VeriAgent"]
-        direction TB
-        P0["Logical Task"] --> P1["Planner"]
-        P1 --> P2["Evidence Retrieval"]
-        P2 --> P3["Answerer"]
-        P3 --> P4["Auditor + Proof Verifier"]
-        P4 --> P5{"Controller"}
-        P5 -->|"RETRIEVE / REPLAN"| P1
-        P5 -->|"ROLLBACK"| P6["Checkpoint Restore"]
-        P6 --> P1
-        P5 -->|"STOP"| P7["Verified Result + Trace"]
-    end
-
-    subgraph DA["Olist Data Agent"]
-        direction TB
-        D0["Data Question"] --> D1["LLM Analysis / Metric Selection"]
-        D1 --> D2["Deterministic Metric Contract"]
-        D2 --> D3["Schema Inspection"]
-        D3 --> D4["LLM SQL Generation"]
-        D4 --> D5["SQL Safety Check"]
-        D5 --> D6["Read-only DuckDB"]
-        D6 --> D7["Optional Cross-check"]
-        D7 --> D8["Final Answer + Trace"]
-    end
-
-    S["Shared Design Principles<br/>deterministic checks · explicit failure states · auditable traces"]
-    S -.-> PW
-    S -.-> DA
-```
-
-The two runtimes are currently **parallel research systems**. The Data Agent does not yet call the ProofWriter Planner, Auditor, Controller, checkpoint store, or rollback path.
-
-At a glance, the project studies four system properties:
-
-| Property | ProofWriter VeriAgent | Olist Data Agent |
-|---|---|---|
-| **Evidence grounding** | Retrieved logical facts/rules | Metric contracts, schema, SQL results |
-| **Verification** | Deterministic proof and UNKNOWN coverage checks | SQL safety, execution checks, optional cross-check |
-| **Recovery / control** | Controller + replan + rollback | Explicit failure/data-gap stopping; recovery loop not yet integrated |
-| **Observability** | Structured runtime events and state hashes | JSONL events and run summaries |
-
----
-
 ## Why VeriAgent?
 
 Many agent systems are optimized around one question: *did the model produce a useful answer?*
