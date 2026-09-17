@@ -2,16 +2,63 @@
 
 **Verifiable agent runtimes for evidence-grounded reasoning, recovery, and auditable data analysis.**
 
-VeriAgent is a research-oriented Python project exploring a simple question:
+VeriAgent is a research-oriented Python project exploring a stricter form of agent reliability:
 
-> **How can an agent do more than produce a plausible answer — and instead expose enough evidence, verification, control decisions, and execution traces to make its behavior inspectable and recoverable?**
+> **An agent should not only produce an answer. It should expose enough evidence, verification, control decisions, and execution traces for its behavior to be inspected and, when possible, recovered.**
 
 The repository currently contains two related but intentionally separate systems:
 
-1. **ProofWriter VeriAgent** — a verifiable retrieval-and-recovery runtime for multi-hop logical reasoning under an Open World Assumption (OWA).
-2. **Olist Data Agent** — a constrained data-analysis pipeline that combines LLM generation with deterministic metric contracts, read-only SQL execution, optional cross-checking, and structured traces.
+- **ProofWriter VeriAgent** — a verifiable retrieval-and-recovery runtime for multi-hop logical reasoning under an Open World Assumption (OWA).
+- **Olist Data Agent** — a constrained data-analysis pipeline combining LLM generation with deterministic metric contracts, read-only SQL execution, optional cross-checking, and structured traces.
 
 They share the same engineering philosophy — **model generation should be bounded by deterministic checks and observable traces** — but they are **not yet a single integrated runtime**.
+
+---
+
+## Architecture at a Glance
+
+```mermaid
+flowchart LR
+    subgraph PW["ProofWriter VeriAgent"]
+        direction TB
+        P0["Logical Task"] --> P1["Planner"]
+        P1 --> P2["Evidence Retrieval"]
+        P2 --> P3["Answerer"]
+        P3 --> P4["Auditor + Proof Verifier"]
+        P4 --> P5{"Controller"}
+        P5 -->|"RETRIEVE / REPLAN"| P1
+        P5 -->|"ROLLBACK"| P6["Checkpoint Restore"]
+        P6 --> P1
+        P5 -->|"STOP"| P7["Verified Result + Trace"]
+    end
+
+    subgraph DA["Olist Data Agent"]
+        direction TB
+        D0["Data Question"] --> D1["LLM Analysis / Metric Selection"]
+        D1 --> D2["Deterministic Metric Contract"]
+        D2 --> D3["Schema Inspection"]
+        D3 --> D4["LLM SQL Generation"]
+        D4 --> D5["SQL Safety Check"]
+        D5 --> D6["Read-only DuckDB"]
+        D6 --> D7["Optional Cross-check"]
+        D7 --> D8["Final Answer + Trace"]
+    end
+
+    S["Shared Design Principles<br/>deterministic checks · explicit failure states · auditable traces"]
+    S -.-> PW
+    S -.-> DA
+```
+
+The two runtimes are currently **parallel research systems**. The Data Agent does not yet call the ProofWriter Planner, Auditor, Controller, checkpoint store, or rollback path.
+
+At a glance, the project studies four system properties:
+
+| Property | ProofWriter VeriAgent | Olist Data Agent |
+|---|---|---|
+| **Evidence grounding** | Retrieved logical facts/rules | Metric contracts, schema, SQL results |
+| **Verification** | Deterministic proof and UNKNOWN coverage checks | SQL safety, execution checks, optional cross-check |
+| **Recovery / control** | Controller + replan + rollback | Explicit failure/data-gap stopping; recovery loop not yet integrated |
+| **Observability** | Structured runtime events and state hashes | JSONL events and run summaries |
 
 ---
 
