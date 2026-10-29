@@ -12,6 +12,7 @@ EVENT_TYPES = frozenset(
     {
         "run_started",
         "question_received",
+        "memory_retrieved",
         "metric_search_started",
         "metric_search_completed",
         "schema_inspection_started",
@@ -27,6 +28,7 @@ EVENT_TYPES = frozenset(
         "cross_check_completed",
         "data_gap_detected",
         "answer_generated",
+        "answer_validation_completed",
         "verification_completed",
         "run_finished",
         "run_failed",

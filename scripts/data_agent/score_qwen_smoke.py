@@ -266,7 +266,7 @@ def score_smoke(*, results_root: Path, gold_file: Path) -> dict[str, Any]:
 
     passed = sum(score["passed"] for score in task_scores)
     payload = {
-        "score_id": "qwen3_8b_smoke_v0_offline",
+        "score_id": smoke_summary.get("smoke_id", "qwen3_8b_smoke_v0") + "_offline",
         "model": smoke_summary.get("model"),
         "execution_backend": smoke_summary.get("execution_backend"),
         "passed": passed,

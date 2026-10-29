@@ -37,7 +37,11 @@ def resolve_database_path(database_path: Optional[Path] = None) -> Path:
 def read_only_connection(
     database_path: Optional[Path] = None,
 ) -> Iterator[duckdb.DuckDBPyConnection]:
-    connection = duckdb.connect(str(resolve_database_path(database_path)), read_only=True)
+    connection = duckdb.connect(
+        str(resolve_database_path(database_path)),
+        read_only=True,
+        config={"enable_external_access": False},
+    )
     try:
         yield connection
     finally:

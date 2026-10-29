@@ -9,6 +9,7 @@ from typing import Any, Mapping, Optional
 
 from veriagent.data_agent import DataAgentRunner
 from veriagent.data_agent.llm import LLMClient
+from veriagent.data_agent.memory import ExperienceMemory
 from veriagent.data_agent.runner.smoke_contract import smoke_cross_check_sql
 from veriagent.data_agent.tools.registry import create_registry
 from veriagent.data_agent.trace import load_trace
@@ -97,10 +98,10 @@ def _failure_category(events: list[Any], status: str) -> Optional[str]:
         return "LLM_API_ERROR"
     if raw_error in {"JSON_PARSE_ERROR", "JSON_SCHEMA_ERROR", "FAKE_RESPONSE_SCHEMA_ERROR"}:
         return "JSON_PARSE_FAILURE"
-    if any(event.event_type == "cross_check_completed" for event in events):
-        return "CROSS_CHECK_FAILURE"
     if stage == "final_answer":
         return "FINAL_ANSWER_FAILURE"
+    if any(event.event_type == "cross_check_completed" for event in events):
+        return "CROSS_CHECK_FAILURE"
     if raw_error == "SQL_NOT_READ_ONLY":
         return "SQL_GENERATION_FAILURE"
     if raw_error in {"SQL_EXECUTION_ERROR", "SQL_ERROR"}:
@@ -133,6 +134,7 @@ def _write_unexpected_failure(
     task_id: str,
     model: str,
     error: Exception,
+    execution_backend: str = EXECUTION_BACKEND,
 ) -> dict[str, Any]:
     run_dir = output_root / task_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +144,7 @@ def _write_unexpected_failure(
         "run_id": task_id,
         "task_id": task_id,
         "model": model,
-        "execution_backend": EXECUTION_BACKEND,
+        "execution_backend": execution_backend,
         "status": "FAILED",
         "failure_category": category,
         "error": f"{type(error).__name__}: {error}",
@@ -169,6 +171,9 @@ def run_smoke(
     database: Path,
     output_root: Path,
     environ: Optional[Mapping[str, str]] = None,
+    execution_backend: str = EXECUTION_BACKEND,
+    smoke_id: str = "qwen3_8b_smoke_v0",
+    experience_memory: Optional[ExperienceMemory] = None,
 ) -> dict[str, Any]:
     tasks_file = Path(tasks_file).resolve()
     database = Path(database).resolve()
@@ -178,7 +183,6 @@ def run_smoke(
         raise FileNotFoundError(f"DuckDB database not found: {database}")
 
     tasks = load_smoke_tasks(tasks_file)
-    output_root = validate_output_root(output_root)
     client = LLMClient.from_env(
         environ=environ,
         temperature=TEMPERATURE,
@@ -186,16 +190,19 @@ def run_smoke(
         timeout_seconds=TIMEOUT_SECONDS,
         allow_json_repair=True,
     )
+    output_root = validate_output_root(output_root)
     runner = DataAgentRunner(
         llm_client=client,
         tool_registry=create_registry(database),
         trace_root=output_root,
-        execution_backend=EXECUTION_BACKEND,
+        execution_backend=execution_backend,
+        experience_memory=experience_memory,
     )
 
     task_summaries = []
     for task in tasks:
         task_id = task["task_id"]
+        print(f"{task_id}: RUNNING", flush=True)
         try:
             result = runner.run(
                 run_id=task_id,
@@ -214,7 +221,8 @@ def run_smoke(
             }
         except Exception as error:
             task_summary = _write_unexpected_failure(
-                output_root, task_id=task_id, model=client.model, error=error
+                output_root, task_id=task_id, model=client.model, error=error,
+                execution_backend=execution_backend,
             )
         task_summaries.append(task_summary)
         suffix = (
@@ -222,13 +230,15 @@ def run_smoke(
             if task_summary.get("failure_category")
             else ""
         )
-        print(f"{task_id}: {task_summary['status']}{suffix}")
+        print(f"{task_id}: {task_summary['status']}{suffix}", flush=True)
 
     failed = sum(task["status"] == "FAILED" for task in task_summaries)
     payload = {
-        "smoke_id": "qwen3_8b_smoke_v0",
+        "smoke_id": smoke_id,
         "model": client.model,
-        "execution_backend": EXECUTION_BACKEND,
+        "execution_backend": execution_backend,
+        "memory_enabled": experience_memory is not None,
+        "memory_snapshot_id": experience_memory.snapshot_id if experience_memory is not None else None,
         "generation": {
             "temperature": TEMPERATURE,
             "max_tokens": MAX_TOKENS,
@@ -257,12 +267,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    run_smoke(
+    result = run_smoke(
         tasks_file=args.tasks_file,
         database=args.database,
         output_root=args.output_root,
     )
-    return 0
+    return 0 if result["status"] == "COMPLETED" else 1
 
 
 if __name__ == "__main__":

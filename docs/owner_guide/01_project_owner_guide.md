@@ -122,7 +122,7 @@ Offline Gold Scorer（runtime 完成后才读取 Gold）
 
 ## 3. Repository Map
 
-项目根在 `.../final/veriagent/`，但测试和结果目录位于其父级 `.../final/`。以下只保留 Owner 需要理解的目录。
+项目根在 `.../final/veriagent/`。历史测试和结果位于父级 `.../final/`；新增 API 闭环测试位于项目内 `tests/`，本机 API 结果位于项目内 `results/`。复跑入口见 `docs/local_api_quickstart.md`。
 
 ### `veriagent/`
 
@@ -224,7 +224,7 @@ datasets/olistbr/
 - 自动从问题或 SQL 触发 join cardinality checker；
 - 自动生成独立 Cross-check SQL；
 - 除 DA02 smoke 外的 runtime cross-check 覆盖；
-- final `key_values` 与 SQL result 的 runtime 确定性一致性检查；
+- 多行和派生指标的 final-value 一致性合同（单行数值聚合已支持确定性检查及从 SQL 渲染展示值）；
 - SQL 复杂度、执行时间和内存预算；
 - 完整 trace schema version、hash chain 或状态 replay；
 - Data Agent 面向用户的服务/API/UI；
@@ -235,7 +235,7 @@ datasets/olistbr/
 
 合理的演进顺序是：
 
-1. 补 SQL 语义验证和 final-value 一致性验证；
+1. 补 SQL 语义验证，并将 final-value 一致性验证扩展至多行和派生指标；
 2. 将 join checker 变成按风险触发的强制步骤；
 3. 明确 Cross-check 生成和信任边界；
 4. 给 trace 增加协议版本和更严格 lifecycle 校验；
@@ -250,12 +250,12 @@ datasets/olistbr/
 |---|---|
 | Data Agent 已融入 VeriAgent recovery loop | 未融入；是独立线性 runner |
 | 所有注册工具都会被 Agent 自动使用 | join checker 已注册，但 runner 不调用 |
-| `verification_completed` 表示答案完全验证 | 只确认 SQL 成功和可选 Cross-check；final value 仍可能不一致 |
+| `verification_completed` 表示答案完全验证 | 现在也检查单行 final value，但仍不证明 SQL 的业务语义 |
 | Metric Contract Markdown 是 runtime source of truth | runtime 使用 Python `METRICS` 字典 |
 | Cross-check 是每题标准步骤 | 参数可选；OpenPAI smoke 仅 DA02 使用 |
 | Trace 已支持完整 replay | 当前 loader 只检查 JSON、event ID 和 step 顺序 |
 | OpenPAI 流程包含完整 job 配置 | 仓库只有容器内 entrypoint，没有 job YAML |
-| 安装项目即可运行 Data Agent | `pyproject.toml` 未声明 DuckDB 主依赖 |
+| 安装父目录项目即可运行 Data Agent | 父目录 `pyproject.toml` 未声明 DuckDB；本项目新增 `requirements.txt` 和 `requirements-dev.txt` |
 
 ## 6. Owner 的判断原则
 

@@ -291,6 +291,39 @@ scripts/data_agent/validate_v0_gold.py
 
 The Data Agent additionally depends on DuckDB and an OpenAI-compatible model endpoint for real-model runs.
 
+For the local API workflow, see [Local API quickstart](docs/local_api_quickstart.md).
+The runtime also supports [verified experience memory](docs/experience_memory.md):
+bounded rules extracted from scored traces, retrieval during metric/SQL generation,
+and frozen comparisons on new questions. This is external memory, not weight training
+or autonomous code modification. Use `--no-memory` to disable retrieval and learning.
+Run `scripts/data_agent/run_memory_eval.py --suite v3 --repeats 3` with the virtual
+environment's Python to compare 12 questions across three repetitions. The report
+tracks paired improvements and regressions, observed table-name error recurrence,
+cost per correct completion, and end-to-end latency; failed runs count toward cost.
+The [Olist challenge evaluation](docs/challenge_evaluation.md) adds 24 independently
+validated scenarios, a frozen development/test split, and a development baseline
+that records semantic failures without promoting them into memory.
+From this repository directory, create a virtual environment, install
+`requirements-dev.txt`, and fill in `.env` using `.env.example`. Run:
+
+```bash
+.venv/bin/python scripts/data_agent/run_api_smoke.py --check-config
+.venv/bin/python scripts/data_agent/run_api_smoke.py --check-api
+.venv/bin/python scripts/data_agent/run_api_smoke.py
+```
+
+The last command runs DA01/DA02/DA10 and then scores the completed traces.
+Outputs are saved under a fresh `results/api_smoke_<timestamp>/` directory.
+API keys are read from the local ignored `.env` file or process environment;
+the process environment takes priority. Remote API endpoints require HTTPS.
+Read-only SQL connections disable external file/network access, including reads
+of `.env` via DuckDB table functions.
+
+The scalar answer path now checks final `key_values` against the SQL row:
+counts must match exactly and amounts within 0.01. Displayed values are rendered
+from SQL after validation. Unsupported result shapes and mismatches fail explicitly.
+This does not prove SQL business semantics or cover all ten tasks.
+
 For implementation details, start with:
 
 - [`docs/owner_guide/01_project_owner_guide.md`](docs/owner_guide/01_project_owner_guide.md)
@@ -343,7 +376,7 @@ Most importantly:
 
 - the Olist Data Agent is **not yet connected** to the ProofWriter Planner/Auditor/Controller/Checkpoint recovery loop;
 - SQL safety validation does **not** prove SQL business semantics;
-- the Data Agent does not yet deterministically verify that the final natural-language `key_values` exactly match the SQL result;
+- final-answer consistency checking currently supports single-row numeric results with metric-ID column aliases; multi-row and derived-value answers need additional contracts;
 - join-cardinality checking exists as a tool but is not automatically enforced on every runtime path;
 - independent cross-check SQL is not automatically generated for every task;
 - the current public repository snapshot does not include all datasets/tests/result artifacts used in the original research workspace;
@@ -376,7 +409,7 @@ The longer-term direction is to move from **answer-generating agents** toward **
 Near-term engineering priorities include:
 
 1. stronger deterministic SQL semantic validation;
-2. final-answer/result consistency checking;
+2. extending final-answer/result consistency checking beyond scalar aggregates;
 3. risk-triggered join-cardinality validation;
 4. clearer cross-check independence guarantees;
 5. stricter trace lifecycle/schema validation;

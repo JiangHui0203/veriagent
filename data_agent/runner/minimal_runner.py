@@ -17,6 +17,9 @@ from ..llm import (
 from ..tools.metric_search import METRICS
 from ..tools.metric_search import requests_unsupported_metric
 from ..trace import TraceWriter
+from ..memory import ExperienceMemory
+from ..memory.store import digest
+from .answer_validation import render_verified_answer, verify_answer_values
 
 
 @dataclass(frozen=True)
@@ -38,15 +41,34 @@ class DataAgentRunner:
         tool_registry: Any,
         trace_root: Path,
         execution_backend: str = "local",
+        experience_memory: Optional[ExperienceMemory] = None,
     ) -> None:
         self.llm_client = llm_client
         self.tool_registry = tool_registry
         self.trace_root = Path(trace_root)
         self.execution_backend = execution_backend
+        self.experience_memory = experience_memory
 
     @property
     def model(self) -> str:
         return str(getattr(self.llm_client, "model", "unknown"))
+
+    def _retrieve_experiences(
+        self, writer: TraceWriter, question: str, *, stage: str, step: int,
+        metric_ids: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        memory = self.experience_memory
+        selected = memory.retrieve(question, stage=stage, metric_ids=metric_ids) if memory is not None else []
+        writer.emit(
+            event_type="memory_retrieved", step=step, status="info",
+            summary=f"Retrieved {len(selected)} experience(s) for {stage}.",
+            data={
+                "enabled": memory is not None, "stage": stage,
+                "snapshot_id": memory.snapshot_id if memory is not None else None,
+                "experiences": selected,
+            },
+        )
+        return selected
 
     def _llm_generate(
         self,
@@ -62,7 +84,10 @@ class DataAgentRunner:
             step=step,
             status="info",
             summary=f"Requested structured {stage} output.",
-            data={"stage": stage, "model": self.model},
+            data={
+                "stage": stage, "model": self.model, "messages": messages,
+                "prompt_sha256": digest(messages),
+            },
             role="assistant",
         )
         response = self.llm_client.generate_json(messages, response_type=response_type)
@@ -199,6 +224,8 @@ class DataAgentRunner:
                 "model": self.model,
                 "execution_backend": self.execution_backend,
                 "status": "RUNNING",
+                "memory_enabled": self.experience_memory is not None,
+                "memory_snapshot_id": self.experience_memory.snapshot_id if self.experience_memory is not None else None,
             },
         )
         writer.emit(
@@ -214,11 +241,14 @@ class DataAgentRunner:
             {"metric_id": metric_id, "display_name": definition["display_name"]}
             for metric_id, definition in METRICS.items()
         ]
+        analysis_experiences = self._retrieve_experiences(
+            writer, question, stage="analysis", step=1,
+        )
         analysis_response = self._llm_generate(
             writer,
             step=1,
             stage="analysis",
-            messages=analysis_messages(question, available_metrics),
+            messages=analysis_messages(question, available_metrics, analysis_experiences),
             response_type=AnalysisSelection,
         )
         if not analysis_response.ok:
@@ -359,11 +389,15 @@ class DataAgentRunner:
                 )
             schemas.append(schema_result.result)
 
+        sql_experiences = self._retrieve_experiences(
+            writer, question, stage="sql_generation", step=4,
+            metric_ids=[metric["metric_id"] for metric in resolved_metrics],
+        )
         sql_response = self._llm_generate(
             writer,
             step=4,
             stage="sql_generation",
-            messages=sql_generation_messages(question, resolved_metrics, schemas),
+            messages=sql_generation_messages(question, resolved_metrics, schemas, sql_experiences),
             response_type=SQLGeneration,
         )
         if not sql_response.ok:
@@ -497,7 +531,35 @@ class DataAgentRunner:
                 error_type=answer_response.error_type or "LLM_ERROR",
                 error=answer_response.error or "final answer generation failed",
             )
-        final_answer = answer_response.data
+        candidate_answer = answer_response.data
+        try:
+            values = verify_answer_values(candidate_answer, sql_result.result, resolved_metrics)
+        except ValueError as error:
+            writer.emit(
+                event_type="answer_validation_completed",
+                step=final_step,
+                status="error",
+                summary="Final answer could not be verified against the SQL result.",
+                data={"matched": False, "error": str(error), "candidate": candidate_answer},
+            )
+            return self._failed(
+                writer,
+                step=final_step,
+                error_type="FINAL_ANSWER_MISMATCH",
+                error=str(error),
+            )
+        final_answer = {
+            **candidate_answer,
+            "key_values": values,
+            "answer": render_verified_answer(values, resolved_metrics),
+        }
+        writer.emit(
+            event_type="answer_validation_completed",
+            step=final_step,
+            status="success",
+            summary="Final values match SQL; displayed numbers are rendered from SQL.",
+            data={"matched": True, "candidate": candidate_answer, "key_values": values},
+        )
         writer.emit(
             event_type="answer_generated",
             step=final_step,
@@ -514,6 +576,8 @@ class DataAgentRunner:
             data={
                 "verified": True,
                 "sql_execution_ok": True,
+                "final_values_match": True,
+                "answer_source": "sql_result",
                 "cross_check_matched": (
                     cross_result.result["matched"] if cross_result is not None else None
                 ),

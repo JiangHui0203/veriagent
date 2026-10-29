@@ -174,7 +174,7 @@
 
 ### G2. SUCCESS 是否等于最终答案正确？
 
-**回答核心**：不完全等价。Runner 当前没有确定性比较 final key_values 与 SQL result；离线 scorer 会检查真实 smoke。
+**回答核心**：不完全等价。Runner 已确定性比较单行 final key_values 与 SQL result，并从 SQL 渲染展示值；但这不能证明 SQL 业务口径正确。多行结果和派生指标还需要额外合同，离线 scorer 继续检查 smoke。
 
 ### G3. `retryable=True` 会自动重试吗？
 
@@ -194,7 +194,7 @@
 
 ### G7. 当前系统最大的风险是什么？
 
-**回答核心**：可执行 SQL 或 SUCCESS 状态可能被误当成业务验证完成。最优先补的是 semantic validator、final-value consistency 和自动 join-risk policy。
+**回答核心**：可执行 SQL 或 SUCCESS 状态可能被误当成业务验证完成。最优先补的是 semantic validator、多行 final-value consistency 和自动 join-risk policy。
 
 ## H. RAG 追问
 
@@ -220,7 +220,7 @@
 - SQL semantic validation 尚未完成；
 - recovery/controller 尚未接入 Data Agent；
 - Cross-check 是可选且 smoke 中仅 DA02 使用；
-- final answer 与 SQL result 的 runtime 一致性未验证；
+- final answer 与 SQL result 的 runtime 一致性目前只支持单行数值聚合；
 - Trace 不是完整 replay engine；
 - `EVENT_TYPES` 中的 recovery 事件只是预留；
 - SQL 没有计算预算和表级 allowlist；

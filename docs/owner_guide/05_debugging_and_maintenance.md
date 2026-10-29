@@ -216,7 +216,7 @@ OpenPAI smoke 还应包含：
 
 ### 现象 A：`ModuleNotFoundError: duckdb`
 
-真实原因：代码直接依赖 DuckDB，但当前 `pyproject.toml` 主依赖列表没有声明 `duckdb`。此外 `data_agent/__init__.py` eager import 了 DB 工具，因此只想导入部分子模块也可能被阻塞。
+真实原因：代码直接依赖 DuckDB，但父目录 `pyproject.toml` 主依赖列表没有声明 `duckdb`。本项目已添加 `requirements-dev.txt`，可在项目虚拟环境中安装。`data_agent/__init__.py` eager import 了 DB 工具，因此只想导入部分子模块也需要该依赖。安装和本机 API 运行方式见 `docs/local_api_quickstart.md`。
 
 排查顺序：
 

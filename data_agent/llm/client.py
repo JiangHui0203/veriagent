@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Mapping, Optional, Type
 
 from .schemas import LLMGenerationResult
@@ -20,12 +19,24 @@ Transport = Callable[[str, Dict[str, Any], Dict[str, str], float], Dict[str, Any
 @dataclass(frozen=True)
 class LLMConfig:
     base_url: str
-    api_key: str
+    api_key: str = field(repr=False)
     model: str
     temperature: float = 0.0
     max_tokens: int = 2048
     timeout_seconds: float = 60.0
     allow_json_repair: bool = True
+    thinking: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        parsed = urllib.parse.urlsplit(self.base_url)
+        if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+            raise ValueError("LLM_BASE_URL must be an HTTP(S) API URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError("LLM_BASE_URL must not contain credentials, query parameters, or fragments")
+        if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("Remote API endpoints require HTTPS")
+        if self.thinking not in {None, "enabled", "disabled"}:
+            raise ValueError("LLM_THINKING must be enabled or disabled")
 
     @classmethod
     def from_env(
@@ -33,16 +44,23 @@ class LLMConfig:
         environ: Optional[Mapping[str, str]] = None,
         **overrides: Any,
     ) -> "LLMConfig":
-        values = os.environ if environ is None else environ
+        if environ is None:
+            from .environment import read_environment
+
+            values = read_environment()
+        else:
+            values = environ
         model = values.get("LLM_MODEL", "").strip()
         if not model:
             raise ValueError("LLM_MODEL is required")
-        return cls(
-            base_url=values.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1").rstrip("/"),
-            api_key=values.get("LLM_API_KEY", "EMPTY"),
-            model=model,
-            **overrides,
-        )
+        options = {
+            "base_url": values.get("LLM_BASE_URL", "http://127.0.0.1:8000/v1").strip().rstrip("/"),
+            "api_key": values.get("LLM_API_KEY", "EMPTY").strip(),
+            "model": model,
+            "thinking": values.get("LLM_THINKING", "").strip() or None,
+        }
+        options.update(overrides)
+        return cls(**options)
 
 
 def _http_transport(
@@ -58,11 +76,25 @@ def _http_transport(
         method="POST",
     )
     hostname = urllib.parse.urlsplit(url).hostname
-    if hostname in {"127.0.0.1", "localhost", "::1"}:
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        response_context = opener.open(request, timeout=timeout_seconds)
-    else:
-        response_context = urllib.request.urlopen(request, timeout=timeout_seconds)
+    try:
+        if hostname in {"127.0.0.1", "localhost", "::1"}:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            response_context = opener.open(request, timeout=timeout_seconds)
+        else:
+            response_context = urllib.request.urlopen(request, timeout=timeout_seconds)
+    except urllib.error.HTTPError as error:
+        # Keep structured provider diagnostics, never arbitrary HTML or headers.
+        detail = ""
+        try:
+            body = json.loads(error.read(8192))
+            api_error = body.get("error", {}) if isinstance(body, dict) else {}
+            if isinstance(api_error, dict) and isinstance(api_error.get("message"), str):
+                detail = ": " + api_error["message"][:500]
+        except (ValueError, OSError):
+            pass
+        finally:
+            error.close()
+        raise urllib.error.URLError(f"API HTTP {error.code}{detail}") from None
     with response_context as response:
         decoded = json.loads(response.read().decode("utf-8"))
     if not isinstance(decoded, dict):
@@ -110,6 +142,8 @@ class LLMClient:
             "max_tokens": self.config.max_tokens,
             "response_format": {"type": "json_object"},
         }
+        if self.config.thinking is not None:
+            payload["thinking"] = {"type": self.config.thinking}
         headers = {"Content-Type": "application/json"}
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
@@ -150,7 +184,8 @@ class LLMClient:
                 return LLMGenerationResult(
                     ok=False,
                     error_type="LLM_API_ERROR",
-                    error=str(error),
+                    error=(str(error).replace(self.config.api_key, "[REDACTED]")
+                           if self.config.api_key else str(error)),
                     retryable=True,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,

@@ -340,7 +340,7 @@ API、JSON、schema 或字段类型错误。
 
 ### 关键限制
 
-Runner 当前不比较 `key_values.payment_value` 与 SQL result。模型如果把最终数字抄错，runtime 仍可能写 `SUCCESS`；真实 smoke 的离线 scorer 才会发现。
+Runner 现在通过 `runner/answer_validation.py` 比较最终 `key_values` 与 SQL 的单行数值结果：计数精确匹配，金额绝对误差不超过 0.01，字段必须与所选 metric ID 一致。不一致时返回 `FINAL_ANSWER_MISMATCH/FAILED`；通过后从 SQL 数值渲染展示文本，并记录 `answer_validation_completed`。多行、截断和缺失字段会失败；SQL 业务语义仍需要独立检查。
 
 ### 代码位置
 
@@ -368,7 +368,7 @@ final_answer
 event_count
 ```
 
-成功路径最后写 `answer_generated`、`verification_completed`、`run_finished`。
+成功路径最后写 `answer_validation_completed`、`answer_generated`、`verification_completed`、`run_finished`。
 
 ### 失败情况
 

@@ -8,6 +8,10 @@ __pycache__/
 venv/
 .venv/
 .env
+.env.*
+!.env.example
+results/
+/memory/
 
 # 数据集与大文件目录（避免触发 GitHub 100MB 限制）
 data/

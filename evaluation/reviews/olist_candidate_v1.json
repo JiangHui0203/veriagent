@@ -1,0 +1,20 @@
+{
+  "status": "APPROVED_FOR_CANDIDATE",
+  "catalog_id": "fde2a8141cc95b6a2fd5836bd1c11ee3d80efb92a6f9cb7d06bd3124964f4e06",
+  "review_sha256": "4c0bd9932af8b9f37da4e04c9af050ec38f1ee85b4bdd0d8b08ca09eb75cc0c8",
+  "review_method": "Agent-authored review of development SQL and replay evidence; human authorized candidate-memory implementation. Successful counterparts are independent repeats, not learned repairs.",
+  "reviews": [
+    {
+      "task_id": "CJ01",
+      "rule_id": "reviewed:child_row_eligibility",
+      "failed_run_id": "CJ01_r01",
+      "successful_run_id": "CJ01_r02"
+    },
+    {
+      "task_id": "CJ03",
+      "rule_id": "reviewed:alias_scope",
+      "failed_run_id": "CJ03_r01",
+      "successful_run_id": "CJ03_r02"
+    }
+  ]
+}
